@@ -1,0 +1,9 @@
+- このプロジェクトはUE5 Performance Dashboard
+- Python + Streamlit
+- Revision + Level名を論理キーにする
+- SQLiteは使わない
+- GraphCacheは事前生成
+- app.pyからグラフ生成しない
+- CSVのCmd:行はFrame統計から除外
+- 過剰なクラス設計を避ける
+- SampleDataは実運用形式を模倣する
