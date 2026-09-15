@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent
 SAMPLE_DATA_ROOT = ROOT / "SampleData"
 GRAPH_CACHE_ROOT = ROOT / "GraphCache"
 HEATMAP_CACHE_ROOT = ROOT / "HeatmapCache"
+DASHBOARD_IMAGE_WIDTH = 700
 HEATMAP_METRICS = {
     "FrameTime": "FrameTime",
     "GameThread": "GameThreadTime",
@@ -147,7 +148,7 @@ def _render_cached_image(title: str, current_path: Path | None, previous_path: P
         else:
             st.info("Heatmapがありません。")
         return
-    st.image(str(path), width="stretch")
+    st.image(str(path), width=DASHBOARD_IMAGE_WIDTH)
 
 
 def _heatmap_cache_path(item: Measurement, metric: str) -> Path:
@@ -161,7 +162,7 @@ def _render_performance_heatmap(
     current_item: Measurement,
     previous_item: Measurement | None,
 ) -> None:
-    st.subheader("Performance Heatmap")
+    st.subheader("ヒートマップ")
     metric = st.radio(
         "計測項目",
         tuple(HEATMAP_METRICS),
@@ -194,7 +195,7 @@ def _render_performance_heatmap(
             f"Metric={metric} / 期待されるPNG: {heatmap_path}"
         )
         return
-    st.image(str(heatmap_path), width="stretch")
+    st.image(str(heatmap_path), width=DASHBOARD_IMAGE_WIDTH)
 
 
 def _render_detail(
