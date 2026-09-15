@@ -55,12 +55,12 @@ def generate_graph(measurement, output_path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate UE5 CSVProfiler graph cache")
-    parser.add_argument("--sample-data", type=Path, default=Path(__file__).parent / "SampleData")
+    parser.add_argument("--input-data", type=Path, default=Path(__file__).parent / "SanitizedData")
     parser.add_argument("--graph-cache", type=Path, default=Path(__file__).parent / "GraphCache")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    measurements = discover_measurements(args.sample_data, args.graph_cache)
+    measurements = discover_measurements(args.input_data, args.graph_cache)
     generated = skipped = 0
     for measurement in measurements:
         output_path = measurement.graph_cache_path

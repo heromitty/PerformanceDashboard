@@ -65,7 +65,7 @@ def discover_revisions(sample_root: Path) -> list[RevisionInfo]:
     seen: dict[int, Path] = {}
 
     if not sample_root.exists():
-        raise FileNotFoundError(f"SampleDataが見つかりません: {sample_root}")
+        raise FileNotFoundError(f"入力データディレクトリが見つかりません: {sample_root}")
 
     for path in sorted(p for p in sample_root.iterdir() if p.is_dir()):
         number = extract_revision_number(path.name)

@@ -20,7 +20,7 @@ from data_loader import (
 
 
 ROOT = Path(__file__).resolve().parent
-SAMPLE_DATA_ROOT = ROOT / "SampleData"
+SANITIZED_DATA_ROOT = ROOT / "SanitizedData"
 GRAPH_CACHE_ROOT = ROOT / "GraphCache"
 HEATMAP_CACHE_ROOT = ROOT / "HeatmapCache"
 DASHBOARD_IMAGE_WIDTH = 700
@@ -220,8 +220,8 @@ def main() -> None:
     st.title("UE5 Performance Dashboard")
 
     try:
-        revisions = discover_revisions(SAMPLE_DATA_ROOT)
-        measurements = discover_measurements(SAMPLE_DATA_ROOT, GRAPH_CACHE_ROOT)
+        revisions = discover_revisions(SANITIZED_DATA_ROOT)
+        measurements = discover_measurements(SANITIZED_DATA_ROOT, GRAPH_CACHE_ROOT)
     except DuplicateRevisionError as exc:
         st.error(f"Revision番号が重複しているため、比較できません: {exc}")
         st.stop()
@@ -231,7 +231,7 @@ def main() -> None:
 
     invalid_dirs = [
         path.name
-        for path in SAMPLE_DATA_ROOT.iterdir()
+        for path in SANITIZED_DATA_ROOT.iterdir()
         if path.is_dir() and extract_revision_number(path.name) is None
     ]
     if invalid_dirs:
