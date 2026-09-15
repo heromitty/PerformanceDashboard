@@ -10,6 +10,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, Normalize
+from matplotlib.lines import Line2D
 import pandas as pd
 
 from data_loader import extract_level_name, extract_revision_number
@@ -183,6 +184,39 @@ def _generate_heatmap(
                 facecolors="none", edgecolors="#000000", marker="D",
                 s=OVER_TARGET_MARKER_SIZE, linewidths=1.3, zorder=4,
             )
+            legend_handles = [
+                Line2D(
+                    [0], [0], marker="D", linestyle="None",
+                    markerfacecolor="none", markeredgecolor="#000000",
+                    markersize=6, markeredgewidth=1.1, label="> 16.67 ms",
+                ),
+                Line2D(
+                    [0], [0], marker="X", linestyle="None",
+                    markerfacecolor="#ffffff", markeredgecolor="#111111",
+                    markersize=7, markeredgewidth=1.0, label="MAX",
+                ),
+            ]
+            if metric == "GPUTime":
+                legend_handles.insert(
+                    1,
+                    Line2D(
+                        [0], [0], marker="o", linestyle="None",
+                        markerfacecolor="none", markeredgecolor="#111111",
+                        markersize=6, markeredgewidth=0.8,
+                        label=(
+                            f"Sustained GPU Load: >= P95 ({sustained_p95:.4f} ms), "
+                            f">= {GPU_SUSTAINED_MIN_RUN_LENGTH} Frames"
+                        ),
+                    ),
+                )
+            fig.legend(
+                handles=legend_handles,
+                loc="lower center",
+                bbox_to_anchor=(0.5, 0.02),
+                fontsize=8,
+                framealpha=0.88,
+                borderpad=0.6,
+            )
         ax.scatter(
             [max_frame["View/PosX"]], [max_frame["View/PosY"]],
             marker="X", s=MAX_MARKER_SIZE, facecolors="#ffffff",
@@ -215,7 +249,7 @@ def _generate_heatmap(
         colorbar = fig.colorbar(background, ax=ax, pad=0.02)
         colorbar.set_label(f"{metric} (ms)")
         colorbar.set_ticks([COLOR_MIN, COLOR_60_FPS, COLOR_30_FPS, COLOR_MAX])
-        fig.tight_layout()
+        fig.tight_layout(rect=(0.03, 0.16, 0.97, 0.96))
         fig.savefig(output_path, dpi=120)
     finally:
         plt.close(fig)
