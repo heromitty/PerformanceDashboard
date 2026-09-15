@@ -41,7 +41,6 @@ class Measurement:
     revision_number: int
     level_name: str
     csv_path: Path
-    heatmap_path: Optional[Path]
     graph_cache_path: Path
 
 
@@ -106,30 +105,22 @@ def _asset_map(
 def discover_measurements(
     sample_root: Path, graph_cache_root: Optional[Path] = None
 ) -> list[Measurement]:
-    """Discover CSVs and pair them with Heatmaps by revision folder and Level."""
+    """Discover CSVs and map them to pre-generated graph cache paths."""
     graph_cache_root = graph_cache_root or sample_root.parent / "GraphCache"
     measurements: list[Measurement] = []
 
     for revision in discover_revisions(sample_root):
         csvs = _asset_map(revision, ".csv")
-        pngs = _asset_map(revision, ".png")
         for level, csv_path in sorted(csvs.items()):
-            heatmap = pngs.get(level)
-            if heatmap is None:
-                LOGGER.warning("Heatmap PNGがありません: %s / %s", revision.folder_name, level)
             measurements.append(
                 Measurement(
                     revision.folder_name,
                     revision.number,
                     level,
                     csv_path,
-                    heatmap,
                     graph_cache_root / revision.folder_name / f"{level}.png",
                 )
             )
-        for level in sorted(set(pngs) - set(csvs)):
-            LOGGER.warning("対応するCSVがありません: %s / %s", revision.folder_name, level)
-
     return measurements
 
 

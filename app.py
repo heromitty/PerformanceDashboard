@@ -22,6 +22,13 @@ from data_loader import (
 ROOT = Path(__file__).resolve().parent
 SAMPLE_DATA_ROOT = ROOT / "SampleData"
 GRAPH_CACHE_ROOT = ROOT / "GraphCache"
+HEATMAP_CACHE_ROOT = ROOT / "HeatmapCache"
+HEATMAP_METRICS = {
+    "FrameTime": "FrameTime",
+    "GameThread": "GameThreadTime",
+    "RenderThread": "RenderThreadTime",
+    "GPU": "GPUTime",
+}
 LOGGER = logging.getLogger(__name__)
 
 
@@ -143,6 +150,53 @@ def _render_cached_image(title: str, current_path: Path | None, previous_path: P
     st.image(str(path), width="stretch")
 
 
+def _heatmap_cache_path(item: Measurement, metric: str) -> Path:
+    return HEATMAP_CACHE_ROOT / item.revision_folder / (
+        f"{item.level_name}-{HEATMAP_METRICS[metric]}.png"
+    )
+
+
+def _render_performance_heatmap(
+    level: str,
+    current_item: Measurement,
+    previous_item: Measurement | None,
+) -> None:
+    st.subheader("Performance Heatmap")
+    metric = st.radio(
+        "計測項目",
+        tuple(HEATMAP_METRICS),
+        horizontal=True,
+        key=f"performance_heatmap_metric_{level}",
+    )
+    revision_options = ("Current", "Previous") if previous_item else ("Current",)
+    revision_choice = st.radio(
+        "Revision",
+        revision_options,
+        horizontal=True,
+        key=f"performance_heatmap_revision_{level}",
+    )
+    if previous_item is None:
+        st.info("Previous revisionにこのLevelのHeatmapはありません。")
+
+    selected_item = current_item if revision_choice == "Current" else previous_item
+    if selected_item is None:
+        st.info("Previous revisionにこのLevelは存在しません。")
+        return
+
+    heatmap_path = _heatmap_cache_path(selected_item, metric)
+    if not heatmap_path.exists():
+        st.warning(
+            "Performance Heatmapがまだ生成されていません。"
+            "generate_heatmaps.pyを実行してください。"
+        )
+        st.caption(
+            f"Revision={selected_item.revision_folder} / Level={level} / "
+            f"Metric={metric} / 期待されるPNG: {heatmap_path}"
+        )
+        return
+    st.image(str(heatmap_path), width="stretch")
+
+
 def _render_detail(
     level: str,
     current_items: dict[str, Measurement],
@@ -157,9 +211,7 @@ def _render_detail(
     previous_graph = previous_item.graph_cache_path if previous_item else None
     _render_cached_image("フレーム推移グラフ", current_graph, previous_graph)
 
-    current_heatmap = current_item.heatmap_path
-    previous_heatmap = previous_item.heatmap_path if previous_item else None
-    _render_cached_image("Heatmap", current_heatmap, previous_heatmap)
+    _render_performance_heatmap(level, current_item, previous_item)
 
 
 def main() -> None:
