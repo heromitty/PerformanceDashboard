@@ -15,6 +15,7 @@ from data_loader import (
     discover_measurements,
     discover_revisions,
     extract_revision_number,
+    load_over_budget_statistics,
     load_statistics,
 )
 
@@ -36,6 +37,11 @@ LOGGER = logging.getLogger(__name__)
 @st.cache_data(show_spinner=False)
 def cached_statistics(csv_path: str) -> dict[str, dict[str, float | None]]:
     return load_statistics(Path(csv_path))
+
+
+@st.cache_data(show_spinner=False)
+def cached_over_budget_statistics(csv_path: str) -> dict[str, int | float | None]:
+    return load_over_budget_statistics(Path(csv_path))
 
 
 def _revision_measurements(measurements: list[Measurement], revision: str) -> dict[str, Measurement]:
@@ -82,6 +88,24 @@ def _load_stats(item: Measurement | None) -> dict[str, dict[str, float | None]] 
         return None
 
 
+def _load_over_budget_stats(item: Measurement | None) -> dict[str, int | float | None] | None:
+    if item is None:
+        return None
+    try:
+        return cached_over_budget_statistics(str(item.csv_path))
+    except Exception as exc:
+        st.warning(f"CSV load failed: {item.csv_path.name} ({exc})")
+        return None
+
+
+def _format_over_budget(stats: dict[str, int | float | None] | None) -> str:
+    if stats is None or stats.get("OverBudgetRate") is None:
+        return "N/A"
+    count = int(stats["OverBudgetFrameCount"] or 0)
+    rate = float(stats["OverBudgetRate"])
+    return f"{count:,} ({rate:.2f}%)"
+
+
 def _render_overview(
     current_items: dict[str, Measurement],
     previous_items: dict[str, Measurement],
@@ -92,8 +116,11 @@ def _render_overview(
     for level in sorted(current_items):
         current_stats = _load_stats(current_items[level])
         previous_stats = _load_stats(previous_items.get(level))
+        over_budget = _load_over_budget_stats(current_items[level])
         row = {"Level": level}
         style_row = {"Level": ""}
+        row["16.67ms超過"] = _format_over_budget(over_budget)
+        style_row["16.67ms超過"] = ""
         for display_name in METRIC_COLUMNS:
             current = current_stats.get(display_name, {}).get(statistic) if current_stats else None
             previous = previous_stats.get(display_name, {}).get(statistic) if previous_stats else None

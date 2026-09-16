@@ -22,6 +22,7 @@ METRIC_COLUMNS = {
     "RenderThread": "RenderThreadTime",
     "GPU": "GPUTime",
 }
+FRAME_BUDGET_60FPS_MS = 16.67
 
 
 class DuplicateRevisionError(ValueError):
@@ -170,6 +171,23 @@ def calculate_statistics(frame_df: pd.DataFrame) -> dict[str, dict[str, float | 
 
 def load_statistics(csv_path: Path) -> dict[str, dict[str, float | None]]:
     return calculate_statistics(load_frame_data(csv_path))
+
+
+def calculate_over_budget_statistics(frame_df: pd.DataFrame) -> dict[str, int | float | None]:
+    """Return the count and rate of valid FrameTime values over the 60 FPS budget."""
+    frame_times = pd.to_numeric(frame_df[METRIC_COLUMNS["FrameTime"]], errors="coerce").dropna()
+    valid_count = int(frame_times.size)
+    over_budget_count = int((frame_times > FRAME_BUDGET_60FPS_MS).sum())
+    over_budget_rate = over_budget_count / valid_count * 100 if valid_count else None
+    return {
+        "OverBudgetFrameCount": over_budget_count,
+        "ValidFrameCount": valid_count,
+        "OverBudgetRate": over_budget_rate,
+    }
+
+
+def load_over_budget_statistics(csv_path: Path) -> dict[str, int | float | None]:
+    return calculate_over_budget_statistics(load_frame_data(csv_path))
 
 
 def graph_cache_path(
