@@ -40,7 +40,9 @@ def cached_statistics(csv_path: str) -> dict[str, dict[str, float | None]]:
 
 
 @st.cache_data(show_spinner=False)
-def cached_over_budget_statistics(csv_path: str) -> dict[str, int | float | None]:
+def cached_over_budget_statistics(
+    csv_path: str,
+) -> dict[str, dict[str, int | float | None]]:
     return load_over_budget_statistics(Path(csv_path))
 
 
@@ -88,7 +90,9 @@ def _load_stats(item: Measurement | None) -> dict[str, dict[str, float | None]] 
         return None
 
 
-def _load_over_budget_stats(item: Measurement | None) -> dict[str, int | float | None] | None:
+def _load_over_budget_stats(
+    item: Measurement | None,
+) -> dict[str, dict[str, int | float | None]] | None:
     if item is None:
         return None
     try:
@@ -116,17 +120,28 @@ def _render_overview(
     for level in sorted(current_items):
         current_stats = _load_stats(current_items[level])
         previous_stats = _load_stats(previous_items.get(level))
-        over_budget = _load_over_budget_stats(current_items[level])
+        over_budget_stats = _load_over_budget_stats(current_items[level])
         row = {"Level": level}
         style_row = {"Level": ""}
-        row["16.67ms超過"] = _format_over_budget(over_budget)
-        style_row["16.67ms超過"] = ""
         for display_name in METRIC_COLUMNS:
             current = current_stats.get(display_name, {}).get(statistic) if current_stats else None
             previous = previous_stats.get(display_name, {}).get(statistic) if previous_stats else None
             change = _change_percent(current, previous)
             row[display_name] = f"{_format_value(current)} ({_format_change(change)})"
             style_row[display_name] = _cell_style(change)
+            if display_name in ("GameThread", "RenderThread", "GPU"):
+                over_budget = (
+                    over_budget_stats.get(display_name)
+                    if over_budget_stats
+                    else None
+                )
+                over_budget_column = {
+                    "GameThread": "GT超過",
+                    "RenderThread": "RT超過",
+                    "GPU": "GPU超過",
+                }[display_name]
+                row[over_budget_column] = _format_over_budget(over_budget)
+                style_row[over_budget_column] = ""
         rows.append(row)
         styles.append(style_row)
 

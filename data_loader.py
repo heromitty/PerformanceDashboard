@@ -23,6 +23,7 @@ METRIC_COLUMNS = {
     "GPU": "GPUTime",
 }
 FRAME_BUDGET_60FPS_MS = 16.67
+OVER_BUDGET_METRICS = ("GameThread", "RenderThread", "GPU")
 
 
 class DuplicateRevisionError(ValueError):
@@ -173,20 +174,26 @@ def load_statistics(csv_path: Path) -> dict[str, dict[str, float | None]]:
     return calculate_statistics(load_frame_data(csv_path))
 
 
-def calculate_over_budget_statistics(frame_df: pd.DataFrame) -> dict[str, int | float | None]:
-    """Return the count and rate of valid FrameTime values over the 60 FPS budget."""
-    frame_times = pd.to_numeric(frame_df[METRIC_COLUMNS["FrameTime"]], errors="coerce").dropna()
-    valid_count = int(frame_times.size)
-    over_budget_count = int((frame_times > FRAME_BUDGET_60FPS_MS).sum())
-    over_budget_rate = over_budget_count / valid_count * 100 if valid_count else None
-    return {
-        "OverBudgetFrameCount": over_budget_count,
-        "ValidFrameCount": valid_count,
-        "OverBudgetRate": over_budget_rate,
-    }
+def calculate_over_budget_statistics(
+    frame_df: pd.DataFrame,
+) -> dict[str, dict[str, int | float | None]]:
+    """Return over-budget statistics independently for each display metric."""
+    result: dict[str, dict[str, int | float | None]] = {}
+    for display_name in OVER_BUDGET_METRICS:
+        column = METRIC_COLUMNS[display_name]
+        values = pd.to_numeric(frame_df[column], errors="coerce").dropna()
+        valid_count = int(values.size)
+        over_budget_count = int((values > FRAME_BUDGET_60FPS_MS).sum())
+        over_budget_rate = over_budget_count / valid_count * 100 if valid_count else None
+        result[display_name] = {
+            "OverBudgetFrameCount": over_budget_count,
+            "ValidFrameCount": valid_count,
+            "OverBudgetRate": over_budget_rate,
+        }
+    return result
 
 
-def load_over_budget_statistics(csv_path: Path) -> dict[str, int | float | None]:
+def load_over_budget_statistics(csv_path: Path) -> dict[str, dict[str, int | float | None]]:
     return calculate_over_budget_statistics(load_frame_data(csv_path))
 
 
