@@ -285,13 +285,14 @@ def _revision_and_level(csv_path: Path) -> tuple[str, str]:
 def main() -> int:
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     csv_files = sorted(INPUT_ROOT.rglob("*.csv")) if INPUT_ROOT.exists() else []
-    generated = skipped = errors = 0
+    generated = skipped = total = errors = 0
 
     for csv_path in csv_files:
         try:
             revision_name, level_name = _revision_and_level(csv_path)
             frame_df, valid_frames = _read_frame_data(csv_path)
             for metric in METRICS:
+                total += 1
                 output_path = OUTPUT_ROOT / revision_name / f"{level_name}-{metric}.png"
                 if output_path.exists():
                     print(
@@ -325,10 +326,12 @@ def main() -> int:
                     LOGGER.debug("Heatmap generation failed", exc_info=True)
         except Exception as exc:
             errors += len(METRICS)
+            total += len(METRICS)
             print(f"CSV={csv_path} ERROR: {exc}")
             LOGGER.debug("CSV processing failed", exc_info=True)
 
     print(f"Generated={generated} Skipped={skipped} Errors={errors}")
+    print(f"generated={generated}, skipped={skipped}, total={total}")
     return 1 if errors else 0
 
 
