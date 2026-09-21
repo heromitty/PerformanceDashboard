@@ -74,15 +74,22 @@ def main() -> int:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     input_files = sorted(INPUT_DIR.rglob("*.csv")) if INPUT_DIR.exists() else []
 
+    generated_count = 0
     success_count = 0
+    skipped_count = 0
     warning_count = 0
     error_count = 0
 
     for input_path in input_files:
         output_path = OUTPUT_DIR / input_path.relative_to(INPUT_DIR)
+        if output_path.exists():
+            skipped_count += 1
+            continue
+
         try:
             if sanitize_file(input_path, output_path):
                 warning_count += 1
+            generated_count += 1
             success_count += 1
         except (OSError, UnicodeError, csv.Error, ValueError) as error:
             error_count += 1
@@ -92,6 +99,7 @@ def main() -> int:
     print(f"処理成功ファイル数: {success_count}")
     print(f"警告ファイル数: {warning_count}")
     print(f"エラーファイル数: {error_count}")
+    print(f"generated={generated_count}, skipped={skipped_count}, total={len(input_files)}")
     return 1 if error_count else 0
 
 
