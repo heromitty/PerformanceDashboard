@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from data_loader import (
+    DETAIL_METRIC_COLUMNS,
     DuplicateRevisionError,
     METRIC_COLUMNS,
     Measurement,
@@ -110,6 +111,17 @@ def _format_over_budget(stats: dict[str, int | float | None] | None) -> str:
     return f"{count:,} ({rate:.2f}%)"
 
 
+def _over_budget_style(stats: dict[str, int | float | None] | None) -> str:
+    if stats is None or stats.get("OverBudgetRate") is None:
+        return ""
+    count = int(stats.get("OverBudgetFrameCount") or 0)
+    if count >= 100:
+        return "background-color: #ffd6d6; color: #9b1c1c"
+    if count >= 10:
+        return "background-color: #fff0bf; color: #7a5600"
+    return ""
+
+
 def _render_overview(
     current_items: dict[str, Measurement],
     previous_items: dict[str, Measurement],
@@ -141,7 +153,7 @@ def _render_overview(
                     "GPU": "GPU超過",
                 }[display_name]
                 row[over_budget_column] = _format_over_budget(over_budget)
-                style_row[over_budget_column] = ""
+                style_row[over_budget_column] = _over_budget_style(over_budget)
         rows.append(row)
         styles.append(style_row)
 
@@ -163,7 +175,7 @@ def _render_statistics(
     current_stats = _load_stats(current_item)
     previous_stats = _load_stats(previous_item)
     rows: list[dict[str, str]] = []
-    for display_name in METRIC_COLUMNS:
+    for display_name in DETAIL_METRIC_COLUMNS:
         row: dict[str, str] = {"計測項目": display_name}
         for statistic in ("Mean", "Median", "Max"):
             current = current_stats.get(display_name, {}).get(statistic) if current_stats else None

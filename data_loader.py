@@ -22,6 +22,10 @@ METRIC_COLUMNS = {
     "RenderThread": "RenderThreadTime",
     "GPU": "GPUTime",
 }
+DETAIL_METRIC_COLUMNS = {
+    **METRIC_COLUMNS,
+    "Translucency": "GPU/Translucency",
+}
 FRAME_BUDGET_60FPS_MS = 16.67
 OVER_BUDGET_METRICS = ("GameThread", "RenderThread", "GPU")
 
@@ -139,9 +143,12 @@ def load_frame_data(csv_path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"対象列がありません: {csv_path}: {', '.join(missing)}")
 
+    available_detail_columns = [
+        column for column in DETAIL_METRIC_COLUMNS.values() if column in header.columns
+    ]
     frame_df = pd.read_csv(
         csv_path,
-        usecols=required,
+        usecols=[*required, *available_detail_columns],
         dtype=str,
         on_bad_lines="skip",
     )
@@ -150,6 +157,10 @@ def load_frame_data(csv_path: Path) -> pd.DataFrame:
 
     for column in METRIC_COLUMNS.values():
         frame_df[column] = pd.to_numeric(frame_df[column], errors="coerce")
+    if "GPU/Translucency" in frame_df.columns:
+        frame_df["GPU/Translucency"] = pd.to_numeric(
+            frame_df["GPU/Translucency"], errors="coerce"
+        )
 
     numeric_candidate = frame_df[list(METRIC_COLUMNS.values())].notna().any(axis=1)
     frame_df = frame_df.loc[not_command & numeric_candidate].copy()
@@ -158,10 +169,14 @@ def load_frame_data(csv_path: Path) -> pd.DataFrame:
 
 
 def calculate_statistics(frame_df: pd.DataFrame) -> dict[str, dict[str, float | None]]:
-    """Return Mean, Median, and Max for each display metric."""
+    """Return Mean, Median, and Max for each Level detail metric."""
     result: dict[str, dict[str, float | None]] = {}
-    for display_name, column in METRIC_COLUMNS.items():
-        values = pd.to_numeric(frame_df[column], errors="coerce").dropna()
+    for display_name, column in DETAIL_METRIC_COLUMNS.items():
+        values = (
+            pd.to_numeric(frame_df[column], errors="coerce").dropna()
+            if column in frame_df.columns
+            else pd.Series(dtype="float64")
+        )
         result[display_name] = {
             "Mean": float(values.mean()) if not values.empty else None,
             "Median": float(values.median()) if not values.empty else None,
