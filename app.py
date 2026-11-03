@@ -55,6 +55,25 @@ def _revision_measurements(measurements: list[Measurement], revision: str) -> di
     }
 
 
+def _initialize_revision_selection(revision_names: list[str]) -> None:
+    latest_revision = revision_names[-1]
+    previous_default = revision_names[-2] if len(revision_names) >= 2 else None
+    previous_options: list[str | None] = (
+        revision_names if len(revision_names) >= 2 else [None]
+    )
+
+    if (
+        "current_revision" not in st.session_state
+        or st.session_state["current_revision"] not in revision_names
+    ):
+        st.session_state["current_revision"] = latest_revision
+    if (
+        "previous_revision" not in st.session_state
+        or st.session_state["previous_revision"] not in previous_options
+    ):
+        st.session_state["previous_revision"] = previous_default
+
+
 def _format_value(value: float | None) -> str:
     return "N/A" if value is None else f"{value:.2f} ms"
 
@@ -296,13 +315,19 @@ def main() -> None:
         return
 
     revision_names = [revision.folder_name for revision in revisions]
+    _initialize_revision_selection(revision_names)
     current_revision = st.selectbox(
         "Current Revision",
         revision_names,
-        index=len(revision_names) - 1,
+        key="current_revision",
     )
-    current_index = revision_names.index(current_revision)
-    previous_revision = revision_names[current_index - 1] if current_index > 0 else None
+    previous_revision = st.selectbox(
+        "Previous Revision",
+        revision_names if len(revision_names) >= 2 else [None],
+        format_func=lambda value: "N/A" if value is None else value,
+        disabled=len(revision_names) < 2,
+        key="previous_revision",
+    )
     st.write(f"Current : `{current_revision}`")
     st.write(f"Previous: `{previous_revision or 'N/A'}`")
 
