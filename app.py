@@ -194,16 +194,27 @@ def _render_statistics(
     current_stats = _load_stats(current_item)
     previous_stats = _load_stats(previous_item)
     rows: list[dict[str, str]] = []
+    styles: list[dict[str, str]] = []
     for display_name in DETAIL_METRIC_COLUMNS:
         row: dict[str, str] = {"計測項目": display_name}
+        style_row: dict[str, str] = {"計測項目": ""}
         for statistic in ("Mean", "Median", "Max"):
             current = current_stats.get(display_name, {}).get(statistic) if current_stats else None
             previous = previous_stats.get(display_name, {}).get(statistic) if previous_stats else None
+            change = _change_percent(current, previous)
             row[f"{statistic} Current"] = _format_value(current)
             row[f"{statistic} Previous"] = _format_value(previous)
-            row[f"{statistic} 増減率"] = _format_change(_change_percent(current, previous))
+            row[f"{statistic} 増減率"] = _format_change(change)
+            style_row[f"{statistic} 増減率"] = _cell_style(change)
         rows.append(row)
-    st.dataframe(pd.DataFrame(rows).set_index("計測項目"), width="stretch")
+        styles.append(style_row)
+
+    table = pd.DataFrame(rows).set_index("計測項目")
+    style_table = pd.DataFrame(styles, index=table.index).reindex(
+        columns=table.columns, fill_value=""
+    )
+    styled = table.style.apply(lambda _: style_table.to_numpy(), axis=None)
+    st.dataframe(styled, width="stretch")
 
 
 def _render_cached_image(title: str, current_path: Path | None, previous_path: Path | None) -> None:
