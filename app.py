@@ -198,7 +198,7 @@ def _render_statistics(
     for display_name in DETAIL_METRIC_COLUMNS:
         row: dict[str, str] = {"計測項目": display_name}
         style_row: dict[str, str] = {"計測項目": ""}
-        for statistic in ("Mean", "Median", "Max"):
+        for statistic in ("Mean", "Median", "Max", "P95"):
             current = current_stats.get(display_name, {}).get(statistic) if current_stats else None
             previous = previous_stats.get(display_name, {}).get(statistic) if previous_stats else None
             change = _change_percent(current, previous)
