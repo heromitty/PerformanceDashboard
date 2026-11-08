@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from app import _cell_style, _change_percent
+from app import _cell_style, _change_percent, _format_change
 from data_loader import DETAIL_METRIC_COLUMNS, calculate_statistics
 
 
@@ -36,6 +36,15 @@ class LevelDetailP95Tests(unittest.TestCase):
         self.assertAlmostEqual(_change_percent(90, 100), -10)
         self.assertIsNone(_change_percent(10, 0))
         self.assertIsNone(_change_percent(None, 100))
+        for change, expected in (
+            (4.96, "+4.96%"),
+            (5, "+5.00%"),
+            (10, "+10.00%"),
+            (-10, "-10.00%"),
+        ):
+            self.assertEqual(_format_change(change), expected)
+        self.assertEqual(_format_change(None), "N/A")
+        self.assertEqual(_cell_style(4.96), "")
         self.assertEqual(_cell_style(10), "background-color: #ffd6d6; color: #9b1c1c")
         self.assertEqual(_cell_style(5), "background-color: #fff0bf; color: #7a5600")
         self.assertEqual(_cell_style(-10), "background-color: #d9f2d9; color: #1f6b1f")

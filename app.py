@@ -85,7 +85,7 @@ def _change_percent(current: float | None, previous: float | None) -> float | No
 
 
 def _format_change(change: float | None) -> str:
-    return "N/A" if change is None else f"{change:+.1f}%"
+    return "N/A" if change is None else f"{change:+.2f}%"
 
 
 def _cell_style(change: float | None) -> str:
