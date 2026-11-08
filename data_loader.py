@@ -169,7 +169,7 @@ def load_frame_data(csv_path: Path) -> pd.DataFrame:
 
 
 def calculate_statistics(frame_df: pd.DataFrame) -> dict[str, dict[str, float | None]]:
-    """Return Mean, Median, and Max for each Level detail metric."""
+    """Return Mean, Median, Max, and P95 for each Level detail metric."""
     result: dict[str, dict[str, float | None]] = {}
     for display_name, column in DETAIL_METRIC_COLUMNS.items():
         values = (
@@ -181,6 +181,7 @@ def calculate_statistics(frame_df: pd.DataFrame) -> dict[str, dict[str, float | 
             "Mean": float(values.mean()) if not values.empty else None,
             "Median": float(values.median()) if not values.empty else None,
             "Max": float(values.max()) if not values.empty else None,
+            "P95": float(values.quantile(0.95)) if not values.empty else None,
         }
     return result
 

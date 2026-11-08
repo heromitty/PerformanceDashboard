@@ -85,7 +85,7 @@ def _change_percent(current: float | None, previous: float | None) -> float | No
 
 
 def _format_change(change: float | None) -> str:
-    return "N/A" if change is None else f"{change:+.1f}%"
+    return "N/A" if change is None else f"{change:+.2f}%"
 
 
 def _cell_style(change: float | None) -> str:
@@ -198,7 +198,7 @@ def _render_statistics(
     for display_name in DETAIL_METRIC_COLUMNS:
         row: dict[str, str] = {"計測項目": display_name}
         style_row: dict[str, str] = {"計測項目": ""}
-        for statistic in ("Mean", "Median", "Max"):
+        for statistic in ("Mean", "Median", "Max", "P95"):
             current = current_stats.get(display_name, {}).get(statistic) if current_stats else None
             previous = previous_stats.get(display_name, {}).get(statistic) if previous_stats else None
             change = _change_percent(current, previous)
