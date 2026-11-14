@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from app import _cell_style, _change_percent, _format_change
+from app import _cell_style, _change_percent, _format_change, _format_over_budget
 from data_loader import DETAIL_METRIC_COLUMNS, calculate_statistics
 
 
@@ -64,6 +64,20 @@ class LevelDetailP95Tests(unittest.TestCase):
 
         self.assertIsNone(result["FrameTime"]["P95"])
         self.assertIsNone(result["Translucency"]["P95"])
+
+    def test_over_budget_displays_count_delta(self):
+        def stats(count):
+            return {"OverBudgetFrameCount": count, "OverBudgetRate": 1.0}
+
+        self.assertEqual(_format_over_budget(stats(0), stats(2)), "0 (-2)")
+        self.assertEqual(_format_over_budget(stats(5), stats(5)), "5 (0)")
+        self.assertEqual(_format_over_budget(stats(14), stats(11)), "14 (+3)")
+
+    def test_over_budget_previous_zero_uses_count_delta(self):
+        current = {"OverBudgetFrameCount": 5, "OverBudgetRate": 1.0}
+        previous = {"OverBudgetFrameCount": 0, "OverBudgetRate": 0.0}
+
+        self.assertEqual(_format_over_budget(current, previous), "5 (+5)")
 
 
 if __name__ == "__main__":
