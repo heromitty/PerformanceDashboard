@@ -41,7 +41,7 @@ class GenerateHeatmapsTests(unittest.TestCase):
             with self.subTest(x_values=x_values, y_values=y_values):
                 _, axis = self._generate(x_values, y_values)
 
-                self.assertTrue(axis.xaxis_inverted())
+                self.assertFalse(axis.xaxis_inverted())
                 self.assertTrue(axis.yaxis_inverted())
                 self.assertEqual(
                     list(axis.collections[0].get_offsets()[:, 0]), x_values

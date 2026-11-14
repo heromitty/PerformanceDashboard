@@ -234,7 +234,6 @@ def _generate_heatmap(
 
         ax.set_aspect("equal", adjustable="box")
         ax.margins(x=0.03, y=0.03)
-        ax.invert_xaxis()
         ax.invert_yaxis()
         ax.set_xlabel("View PosX")
         ax.set_ylabel("View PosY")
