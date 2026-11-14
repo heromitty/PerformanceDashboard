@@ -42,6 +42,12 @@ SanitizedData/
    python generate_graphs.py --input-data <path>
    ```
 
+   既存のGraphCacheを35ms上限・超過マーカー付きで更新する場合は`--force`を使用します。
+
+   ```text
+   python generate_graphs.py --force
+   ```
+
 4. Performance Heatmapを生成します。
 
    ```text
