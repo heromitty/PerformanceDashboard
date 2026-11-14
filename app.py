@@ -122,12 +122,19 @@ def _load_over_budget_stats(
         return None
 
 
-def _format_over_budget(stats: dict[str, int | float | None] | None) -> str:
+def _format_over_budget(
+    stats: dict[str, int | float | None] | None,
+    previous_stats: dict[str, int | float | None] | None = None,
+) -> str:
     if stats is None or stats.get("OverBudgetRate") is None:
         return "N/A"
     count = int(stats["OverBudgetFrameCount"] or 0)
-    rate = float(stats["OverBudgetRate"])
-    return f"{count:,} ({rate:.2f}%)"
+    if previous_stats is None or previous_stats.get("OverBudgetRate") is None:
+        return f"{count:,} (N/A)"
+    previous_count = int(previous_stats.get("OverBudgetFrameCount") or 0)
+    count_delta = count - previous_count
+    delta_text = str(count_delta) if count_delta == 0 else f"{count_delta:+d}"
+    return f"{count:,} ({delta_text})"
 
 
 def _over_budget_style(stats: dict[str, int | float | None] | None) -> str:
@@ -152,6 +159,7 @@ def _render_overview(
         current_stats = _load_stats(current_items[level])
         previous_stats = _load_stats(previous_items.get(level))
         over_budget_stats = _load_over_budget_stats(current_items[level])
+        previous_over_budget_stats = _load_over_budget_stats(previous_items.get(level))
         row = {"Level": level}
         style_row = {"Level": ""}
         for display_name in METRIC_COLUMNS:
@@ -171,7 +179,15 @@ def _render_overview(
                     "RenderThread": "RT超過",
                     "GPU": "GPU超過",
                 }[display_name]
-                row[over_budget_column] = _format_over_budget(over_budget)
+                previous_over_budget = (
+                    previous_over_budget_stats.get(display_name)
+                    if previous_over_budget_stats
+                    else None
+                )
+                row[over_budget_column] = _format_over_budget(
+                    over_budget,
+                    previous_over_budget,
+                )
                 style_row[over_budget_column] = _over_budget_style(over_budget)
         rows.append(row)
         styles.append(style_row)
