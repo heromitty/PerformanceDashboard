@@ -16,8 +16,7 @@ from data_loader import (
     discover_measurements,
     discover_revisions,
     extract_revision_number,
-    load_over_budget_statistics,
-    load_statistics,
+    load_statistics_cache,
 )
 
 
@@ -25,6 +24,7 @@ ROOT = Path(__file__).resolve().parent
 SANITIZED_DATA_ROOT = ROOT / "SanitizedData"
 GRAPH_CACHE_ROOT = ROOT / "GraphCache"
 HEATMAP_CACHE_ROOT = ROOT / "HeatmapCache"
+STATISTICS_CACHE_ROOT = ROOT / "StatisticsCache"
 DASHBOARD_IMAGE_WIDTH = 700
 HEATMAP_METRICS = {
     "FrameTime": "FrameTime",
@@ -36,15 +36,19 @@ LOGGER = logging.getLogger(__name__)
 
 
 @st.cache_data(show_spinner=False)
-def cached_statistics(csv_path: str) -> dict[str, dict[str, float | None]]:
-    return load_statistics(Path(csv_path))
-
-
-@st.cache_data(show_spinner=False)
-def cached_over_budget_statistics(
-    csv_path: str,
-) -> dict[str, dict[str, int | float | None]]:
-    return load_over_budget_statistics(Path(csv_path))
+def cached_statistics_cache(
+    cache_path: str,
+    revision_folder: str,
+    revision_number: int,
+    level_name: str,
+    cache_mtime_ns: int | None,
+) -> dict[str, object] | None:
+    # The mtime is an explicit cache key so an externally regenerated JSON is
+    # observed on the next Streamlit rerun.
+    del cache_mtime_ns
+    return load_statistics_cache(
+        Path(cache_path), revision_folder, revision_number, level_name
+    )
 
 
 def _revision_measurements(measurements: list[Measurement], revision: str) -> dict[str, Measurement]:
@@ -100,31 +104,35 @@ def _cell_style(change: float | None) -> str:
     return ""
 
 
-def _load_stats(item: Measurement | None) -> dict[str, dict[str, float | None]] | None:
+def _statistics_cache_path(item: Measurement) -> Path:
+    return STATISTICS_CACHE_ROOT / item.revision_folder / f"{item.level_name}.json"
+
+
+def _load_stats(item: Measurement | None) -> dict[str, object] | None:
     if item is None:
         return None
-    try:
-        return cached_statistics(str(item.csv_path))
-    except Exception as exc:
-        st.warning(f"CSVを読み込めません: {item.csv_path.name} ({exc})")
-        return None
+    cache_path = _statistics_cache_path(item)
+    mtime_ns = cache_path.stat().st_mtime_ns if cache_path.exists() else None
+    return cached_statistics_cache(
+        str(cache_path),
+        item.revision_folder,
+        item.revision_number,
+        item.level_name,
+        mtime_ns,
+    )
 
 
 def _load_over_budget_stats(
     item: Measurement | None,
-) -> dict[str, dict[str, int | float | None]] | None:
+) -> dict[str, object] | None:
     if item is None:
         return None
-    try:
-        return cached_over_budget_statistics(str(item.csv_path))
-    except Exception as exc:
-        st.warning(f"CSV load failed: {item.csv_path.name} ({exc})")
-        return None
+    return _load_stats(item)
 
 
 def _format_over_budget(
-    stats: dict[str, int | float | None] | None,
-    previous_stats: dict[str, int | float | None] | None = None,
+    stats: dict[str, object] | None,
+    previous_stats: dict[str, object] | None = None,
 ) -> str:
     if stats is None or stats.get("OverBudgetRate") is None:
         return "N/A"
@@ -328,6 +336,16 @@ def main() -> None:
     except Exception as exc:
         st.error(f"データ探索に失敗しました: {exc}")
         st.stop()
+
+    missing_statistics_cache_count = sum(
+        _load_stats(item) is None for item in measurements
+    )
+    if missing_statistics_cache_count:
+        st.warning(
+            "StatisticsCacheが不足しています。\n"
+            f"{missing_statistics_cache_count}件の計測データに対応する有効なStatisticsCacheが存在しません。\n"
+            "generate_statistics.py を実行してください。"
+        )
 
     invalid_dirs = [
         path.name
