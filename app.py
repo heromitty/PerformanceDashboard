@@ -174,6 +174,24 @@ def _stats_for(
     return _load_stats(item)
 
 
+def _statistics_metrics(
+    stats: dict[str, object] | None,
+) -> dict[str, dict[str, object]]:
+    """Return the metrics section of a validated StatisticsCache payload."""
+    if not stats:
+        return {}
+    metrics = stats.get("metrics")
+    return metrics if isinstance(metrics, dict) else {}
+
+
+def _metric_stats(
+    stats: dict[str, object] | None,
+    display_name: str,
+) -> dict[str, object] | None:
+    metric = _statistics_metrics(stats).get(display_name)
+    return metric if isinstance(metric, dict) else None
+
+
 def _format_over_budget(
     stats: dict[str, object] | None,
     previous_stats: dict[str, object] | None = None,
@@ -211,32 +229,26 @@ def _render_overview(
     for level in sorted(current_items):
         current_stats = _stats_for(current_items[level], stats_by_key)
         previous_stats = _stats_for(previous_items.get(level), stats_by_key)
-        over_budget_stats = current_stats
-        previous_over_budget_stats = previous_stats
+        over_budget_stats = _statistics_metrics(current_stats)
+        previous_over_budget_stats = _statistics_metrics(previous_stats)
         row = {"Level": level}
         style_row = {"Level": ""}
         for display_name in METRIC_COLUMNS:
-            current = current_stats.get(display_name, {}).get(statistic) if current_stats else None
-            previous = previous_stats.get(display_name, {}).get(statistic) if previous_stats else None
+            current_metric = _metric_stats(current_stats, display_name)
+            previous_metric = _metric_stats(previous_stats, display_name)
+            current = current_metric.get(statistic) if current_metric else None
+            previous = previous_metric.get(statistic) if previous_metric else None
             change = _change_percent(current, previous)
             row[display_name] = f"{_format_value(current)} ({_format_change(change)})"
             style_row[display_name] = _cell_style(change)
             if display_name in ("GameThread", "RenderThread", "GPU"):
-                over_budget = (
-                    over_budget_stats.get(display_name)
-                    if over_budget_stats
-                    else None
-                )
+                over_budget = over_budget_stats.get(display_name)
                 over_budget_column = {
                     "GameThread": "GT超過",
                     "RenderThread": "RT超過",
                     "GPU": "GPU超過",
                 }[display_name]
-                previous_over_budget = (
-                    previous_over_budget_stats.get(display_name)
-                    if previous_over_budget_stats
-                    else None
-                )
+                previous_over_budget = previous_over_budget_stats.get(display_name)
                 row[over_budget_column] = _format_over_budget(
                     over_budget,
                     previous_over_budget,
@@ -268,9 +280,11 @@ def _render_statistics(
     for display_name in DETAIL_METRIC_COLUMNS:
         row: dict[str, str] = {"計測項目": display_name}
         style_row: dict[str, str] = {"計測項目": ""}
+        current_metric = _metric_stats(current_stats, display_name)
+        previous_metric = _metric_stats(previous_stats, display_name)
         for statistic in ("Mean", "Median", "Max", "P95"):
-            current = current_stats.get(display_name, {}).get(statistic) if current_stats else None
-            previous = previous_stats.get(display_name, {}).get(statistic) if previous_stats else None
+            current = current_metric.get(statistic) if current_metric else None
+            previous = previous_metric.get(statistic) if previous_metric else None
             change = _change_percent(current, previous)
             row[f"{statistic} Current"] = _format_value(current)
             row[f"{statistic} Previous"] = _format_value(previous)
@@ -392,15 +406,15 @@ def _trend_data(
     for revision in revisions:
         item = revision_items.get(revision)
         stats = stats_by_key.get(_measurement_key(item)) if item else None
-        metrics = stats.get("metrics", {}) if stats else {}
         for metric_name in TREND_TIME_METRICS:
-            metric = metrics.get(metric_name, {}) if isinstance(metrics, dict) else {}
-            value = metric.get(statistic) if isinstance(metric, dict) else None
-            valid_count = metric.get("ValidFrameCount", 0) if isinstance(metric, dict) else 0
+            metric = _metric_stats(stats, metric_name)
+            value = metric.get(statistic) if metric else None
+            valid_count = metric.get("ValidFrameCount", 0) if metric else 0
             actual_value = value if valid_count and value is not None else None
             time_rows.append(
                 {
                     "revision": revision,
+                    "revision_label": str(revision),
                     "metric": metric_name,
                     "actual_value": actual_value,
                     "display_value": min(float(actual_value), TREND_TIME_Y_MAX_MS)
@@ -410,12 +424,13 @@ def _trend_data(
                 }
             )
         for display_name, metric_name in TREND_OVER_BUDGET_METRICS:
-            metric = metrics.get(metric_name, {}) if isinstance(metrics, dict) else {}
-            count = metric.get("OverBudgetFrameCount") if isinstance(metric, dict) else None
-            valid_count = metric.get("ValidFrameCount", 0) if isinstance(metric, dict) else 0
+            metric = _metric_stats(stats, metric_name)
+            count = metric.get("OverBudgetFrameCount") if metric else None
+            valid_count = metric.get("ValidFrameCount", 0) if metric else 0
             over_budget_rows.append(
                 {
                     "revision": revision,
+                    "revision_label": str(revision),
                     "metric": display_name,
                     "value": count if valid_count and count is not None else None,
                 }
@@ -424,15 +439,16 @@ def _trend_data(
 
 
 def _time_trend_chart(data: pd.DataFrame) -> alt.Chart:
+    revision_sort = [str(value) for value in sorted(data["revision"].unique())]
     color_scale = alt.Scale(
         domain=list(TREND_TIME_METRICS),
         range=[TREND_COLORS[name] for name in TREND_TIME_METRICS],
     )
     base = alt.Chart(data).encode(
-        x=alt.X("revision:Q", title="Revision", axis=alt.Axis(format="d")),
+        x=alt.X("revision_label:O", title="Revision", sort=revision_sort),
         color=alt.Color("metric:N", title="指標", scale=color_scale),
     )
-    lines = base.mark_line(point=True).encode(
+    lines = base.mark_line(point=True, invalid="break-paths-show-domains").encode(
         y=alt.Y(
             "display_value:Q",
             title="処理時間 (ms)",
@@ -467,15 +483,16 @@ def _time_trend_chart(data: pd.DataFrame) -> alt.Chart:
 
 
 def _over_budget_trend_chart(data: pd.DataFrame) -> alt.Chart:
+    revision_sort = [str(value) for value in sorted(data["revision"].unique())]
     color_scale = alt.Scale(
         domain=[name for name, _ in TREND_OVER_BUDGET_METRICS],
         range=[TREND_COLORS[name] for name, _ in TREND_OVER_BUDGET_METRICS],
     )
     return (
         alt.Chart(data)
-        .mark_line(point=True)
+        .mark_line(point=True, invalid="break-paths-show-domains")
         .encode(
-            x=alt.X("revision:Q", title="Revision", axis=alt.Axis(format="d")),
+            x=alt.X("revision_label:O", title="Revision", sort=revision_sort),
             y=alt.Y("value:Q", title="超過回数 (回)", scale=alt.Scale(zero=True)),
             color=alt.Color("metric:N", title="指標", scale=color_scale),
             tooltip=[
@@ -502,11 +519,11 @@ def _render_revision_trends(
         )
         st.subheader(level_name)
         if time_data["actual_value"].notna().any():
-            st.altair_chart(_time_trend_chart(time_data), use_container_width=True)
+            st.altair_chart(_time_trend_chart(time_data), width="stretch")
         else:
             st.info("処理時間の有効な統計値がありません。")
         if over_budget_data["value"].notna().any():
-            st.altair_chart(_over_budget_trend_chart(over_budget_data), use_container_width=True)
+            st.altair_chart(_over_budget_trend_chart(over_budget_data), width="stretch")
         else:
             st.info("超過回数の有効な統計値がありません。")
 
