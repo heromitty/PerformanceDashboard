@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import logging
+import json
+import math
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -28,6 +32,7 @@ DETAIL_METRIC_COLUMNS = {
 }
 FRAME_BUDGET_60FPS_MS = 16.67
 OVER_BUDGET_METRICS = ("GameThread", "RenderThread", "GPU")
+STATISTICS_SCHEMA_VERSION = 1
 
 
 class DuplicateRevisionError(ValueError):
@@ -171,12 +176,7 @@ def load_frame_data(csv_path: Path) -> pd.DataFrame:
 def calculate_statistics(frame_df: pd.DataFrame) -> dict[str, dict[str, float | None]]:
     """Return Mean, Median, Max, and P95 for each Level detail metric."""
     result: dict[str, dict[str, float | None]] = {}
-    for display_name, column in DETAIL_METRIC_COLUMNS.items():
-        values = (
-            pd.to_numeric(frame_df[column], errors="coerce").dropna()
-            if column in frame_df.columns
-            else pd.Series(dtype="float64")
-        )
+    for display_name, values in _metric_values(frame_df):
         result[display_name] = {
             "Mean": float(values.mean()) if not values.empty else None,
             "Median": float(values.median()) if not values.empty else None,
@@ -184,6 +184,50 @@ def calculate_statistics(frame_df: pd.DataFrame) -> dict[str, dict[str, float | 
             "P95": float(values.quantile(0.95)) if not values.empty else None,
         }
     return result
+
+
+def calculate_statistics_cache(
+    frame_df: pd.DataFrame,
+    revision_folder: str,
+    revision_number: int,
+    level_name: str,
+) -> dict[str, object]:
+    """Calculate every persistent statistic from an already loaded frame table."""
+    statistics = calculate_statistics(frame_df)
+    over_budget_statistics = calculate_over_budget_statistics(frame_df)
+    metrics: dict[str, dict[str, object]] = {}
+    for display_name, values in _metric_values(frame_df):
+        stats: dict[str, object] = {
+            **statistics[display_name],
+            "ValidFrameCount": int(values.size),
+        }
+        if display_name in OVER_BUDGET_METRICS:
+            stats.update(over_budget_statistics[display_name])
+        metrics[display_name] = stats
+
+    return {
+        "schema_version": STATISTICS_SCHEMA_VERSION,
+        "revision": revision_number,
+        "revision_folder": revision_folder,
+        "level": level_name,
+        "over_budget_threshold_ms": FRAME_BUDGET_60FPS_MS,
+        "metrics": metrics,
+    }
+
+
+def _metric_values(
+    frame_df: pd.DataFrame,
+) -> list[tuple[str, pd.Series]]:
+    """Return numeric, non-null values for every detail metric."""
+    return [
+        (
+            display_name,
+            pd.to_numeric(frame_df[column], errors="coerce").dropna()
+            if column in frame_df.columns
+            else pd.Series(dtype="float64"),
+        )
+        for display_name, column in DETAIL_METRIC_COLUMNS.items()
+    ]
 
 
 def load_statistics(csv_path: Path) -> dict[str, dict[str, float | None]]:
@@ -211,6 +255,124 @@ def calculate_over_budget_statistics(
 
 def load_over_budget_statistics(csv_path: Path) -> dict[str, dict[str, int | float | None]]:
     return calculate_over_budget_statistics(load_frame_data(csv_path))
+
+
+def save_statistics_cache(cache_path: Path, payload: dict[str, object]) -> None:
+    """Write a statistics cache atomically and reject non-standard JSON values."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=cache_path.parent, delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(payload, temporary, ensure_ascii=False, indent=2, allow_nan=False)
+            temporary.write("\n")
+        os.replace(temporary_path, cache_path)
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def validate_statistics_cache(
+    cache_path: Path,
+    revision_folder: str,
+    revision_number: int,
+    level_name: str,
+) -> tuple[bool, str]:
+    """Validate cache identity, schema, and nullable numeric fields."""
+    if not cache_path.exists():
+        return False, "cache does not exist"
+    try:
+        with cache_path.open("r", encoding="utf-8") as source:
+            payload = json.load(source)
+        _validate_statistics_payload(payload, revision_folder, revision_number, level_name)
+    except Exception as exc:
+        return False, str(exc)
+    return True, ""
+
+
+def load_statistics_cache(
+    cache_path: Path,
+    revision_folder: str,
+    revision_number: int,
+    level_name: str,
+) -> dict[str, object] | None:
+    """Load a valid statistics cache without ever falling back to CSV."""
+    valid, _ = validate_statistics_cache(
+        cache_path, revision_folder, revision_number, level_name
+    )
+    if not valid:
+        return None
+    with cache_path.open("r", encoding="utf-8") as source:
+        return json.load(source)
+
+
+def _validate_statistics_payload(
+    payload: object,
+    revision_folder: str,
+    revision_number: int,
+    level_name: str,
+) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("cache root must be an object")
+    schema_version = payload.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != STATISTICS_SCHEMA_VERSION
+    ):
+        raise ValueError("unsupported schema_version")
+    stored_revision = payload.get("revision")
+    if (
+        not isinstance(stored_revision, int)
+        or isinstance(stored_revision, bool)
+        or stored_revision != revision_number
+    ):
+        raise ValueError("revision number does not match")
+    if not isinstance(payload.get("revision_folder"), str) or payload.get("revision_folder") != revision_folder:
+        raise ValueError("revision folder does not match")
+    if not isinstance(payload.get("level"), str) or payload.get("level") != level_name:
+        raise ValueError("level does not match")
+    threshold = payload.get("over_budget_threshold_ms")
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not math.isfinite(float(threshold))
+        or threshold != FRAME_BUDGET_60FPS_MS
+    ):
+        raise ValueError("over-budget threshold does not match")
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        raise ValueError("metrics must be an object")
+    for display_name in DETAIL_METRIC_COLUMNS:
+        metric = metrics.get(display_name)
+        if not isinstance(metric, dict):
+            raise ValueError(f"missing metric: {display_name}")
+        for key in ("Mean", "Median", "Max", "P95"):
+            if key not in metric:
+                raise ValueError(f"missing {display_name}.{key}")
+            _validate_nullable_number(metric.get(key), f"{display_name}.{key}")
+        valid_count = metric.get("ValidFrameCount")
+        if not isinstance(valid_count, int) or isinstance(valid_count, bool) or valid_count < 0:
+            raise ValueError(f"invalid {display_name}.ValidFrameCount")
+        if display_name in OVER_BUDGET_METRICS:
+            if "OverBudgetFrameCount" not in metric or "OverBudgetRate" not in metric:
+                raise ValueError(f"missing over-budget fields: {display_name}")
+            count = metric.get("OverBudgetFrameCount")
+            if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                raise ValueError(f"invalid {display_name}.OverBudgetFrameCount")
+            _validate_nullable_number(metric.get("OverBudgetRate"), f"{display_name}.OverBudgetRate")
+
+
+def _validate_nullable_number(value: object, name: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"invalid {name}")
+    if not math.isfinite(float(value)):
+        raise ValueError(f"non-finite {name}")
 
 
 def graph_cache_path(
