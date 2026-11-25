@@ -24,6 +24,19 @@ SanitizedData/
 
 `RawData/`、`SanitizedData/`、`HeatmapCache/`、`StatisticsCache/`はGit管理対象外です。Dashboardは`SanitizedData/`からRevision / Levelを列挙し、統計値は事前生成された`StatisticsCache/`から読み込みます。DashboardはCSVの統計計算やStatisticsCacheの生成を行いません。グラフとヒートマップも事前生成されたCache画像を表示します。
 
+## Revision推移グラフ
+
+レベル一覧の直後に、Revision間で処理負荷がいつ変化したかを確認するための推移グラフをLevelごとに表示します。対象は`SanitizedData/`に実際に存在する全Revisionと、全Revisionに存在するLevelの集合です。Revision番号は数値の昇順で並び、Current / Previousの選択には依存しません。元CSVが存在する計測だけを対象とし、JSONだけが残ったキャッシュは表示対象にしません。
+
+各Levelには次の2種類のグラフを表示します。
+
+- 処理時間グラフ: `FrameTime`、`GameThread`、`RenderThread`、`GPU`。既存の`Mean` / `Median` / `Max`選択と連動します。
+- 超過回数グラフ: `GT超過`、`RT超過`、`GPU超過`。StatisticsCacheの超過回数をそのまま表示し、Statistic選択には連動しません。
+
+処理時間グラフは0～35msに固定し、16.67msの基準線を表示します。35msを超える値は35ms位置に三角形マーカーを描画し、実測値をラベルとマウスオーバーで表示します。超過回数グラフの上限は自動調整です。StatisticsCache不足・破損・無効値・対象Level不在は欠損として扱い、欠損区間を線で接続しません。実測値が存在しないグラフはその旨を表示します。
+
+Revision推移グラフを表示するには、先に`python generate_statistics.py`でStatisticsCacheを事前生成してください。Dashboardは推移グラフ表示時にもCSVの読み込み・統計計算・StatisticsCache生成を行いません。
+
 ## 実行手順
 
 1. CSVProfilerのCSVを`RawData/`以下へ配置します。
