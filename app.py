@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -32,6 +33,23 @@ HEATMAP_METRICS = {
     "RenderThread": "RenderThreadTime",
     "GPU": "GPUTime",
 }
+TREND_TIME_METRICS = ("FrameTime", "GameThread", "RenderThread", "GPU")
+TREND_OVER_BUDGET_METRICS = (
+    ("GT超過", "GameThread"),
+    ("RT超過", "RenderThread"),
+    ("GPU超過", "GPU"),
+)
+TREND_COLORS = {
+    "FrameTime": "#A6E3A1",
+    "GameThread": "#89B4FA",
+    "RenderThread": "#FAB387",
+    "GPU": "#F38BA8",
+    "GT超過": "#89B4FA",
+    "RT超過": "#FAB387",
+    "GPU超過": "#F38BA8",
+}
+TREND_TIME_Y_MAX_MS = 35.0
+TREND_FRAME_BUDGET_MS = 16.67
 LOGGER = logging.getLogger(__name__)
 
 
@@ -130,6 +148,32 @@ def _load_over_budget_stats(
     return _load_stats(item)
 
 
+def _measurement_key(item: Measurement) -> tuple[str, str]:
+    return item.revision_folder, item.level_name
+
+
+def _load_statistics_for_measurements(
+    measurements: list[Measurement],
+) -> tuple[dict[tuple[str, str], dict[str, object] | None], int]:
+    """Load each discovered measurement's cache once and count missing caches once."""
+    stats_by_key: dict[tuple[str, str], dict[str, object] | None] = {}
+    for item in measurements:
+        stats_by_key[_measurement_key(item)] = _load_stats(item)
+    missing_count = sum(stats is None for stats in stats_by_key.values())
+    return stats_by_key, missing_count
+
+
+def _stats_for(
+    item: Measurement | None,
+    stats_by_key: dict[tuple[str, str], dict[str, object] | None] | None,
+) -> dict[str, object] | None:
+    if item is None:
+        return None
+    if stats_by_key is not None:
+        return stats_by_key.get(_measurement_key(item))
+    return _load_stats(item)
+
+
 def _format_over_budget(
     stats: dict[str, object] | None,
     previous_stats: dict[str, object] | None = None,
@@ -160,14 +204,15 @@ def _render_overview(
     current_items: dict[str, Measurement],
     previous_items: dict[str, Measurement],
     statistic: str,
+    stats_by_key: dict[tuple[str, str], dict[str, object] | None] | None = None,
 ) -> None:
     rows: list[dict[str, str]] = []
     styles: list[dict[str, str]] = []
     for level in sorted(current_items):
-        current_stats = _load_stats(current_items[level])
-        previous_stats = _load_stats(previous_items.get(level))
-        over_budget_stats = _load_over_budget_stats(current_items[level])
-        previous_over_budget_stats = _load_over_budget_stats(previous_items.get(level))
+        current_stats = _stats_for(current_items[level], stats_by_key)
+        previous_stats = _stats_for(previous_items.get(level), stats_by_key)
+        over_budget_stats = current_stats
+        previous_over_budget_stats = previous_stats
         row = {"Level": level}
         style_row = {"Level": ""}
         for display_name in METRIC_COLUMNS:
@@ -214,9 +259,10 @@ def _render_overview(
 def _render_statistics(
     current_item: Measurement,
     previous_item: Measurement | None,
+    stats_by_key: dict[tuple[str, str], dict[str, object] | None] | None = None,
 ) -> None:
-    current_stats = _load_stats(current_item)
-    previous_stats = _load_stats(previous_item)
+    current_stats = _stats_for(current_item, stats_by_key)
+    previous_stats = _stats_for(previous_item, stats_by_key)
     rows: list[dict[str, str]] = []
     styles: list[dict[str, str]] = []
     for display_name in DETAIL_METRIC_COLUMNS:
@@ -310,17 +356,159 @@ def _render_detail(
     level: str,
     current_items: dict[str, Measurement],
     previous_items: dict[str, Measurement],
+    stats_by_key: dict[tuple[str, str], dict[str, object] | None] | None = None,
 ) -> None:
     current_item = current_items[level]
     previous_item = previous_items.get(level)
     st.subheader(f"Level詳細: {level}")
-    _render_statistics(current_item, previous_item)
+    _render_statistics(current_item, previous_item, stats_by_key)
 
     current_graph = current_item.graph_cache_path
     previous_graph = previous_item.graph_cache_path if previous_item else None
     _render_cached_image("フレーム推移グラフ", current_graph, previous_graph)
 
     _render_performance_heatmap(level, current_item, previous_item)
+
+
+def _trend_levels(measurements: list[Measurement]) -> list[str]:
+    return sorted({item.level_name for item in measurements})
+
+
+def _trend_data(
+    measurements: list[Measurement],
+    stats_by_key: dict[tuple[str, str], dict[str, object] | None],
+    level_name: str,
+    statistic: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build independent time and over-budget series for one Level."""
+    revision_items = {
+        item.revision_number: item
+        for item in measurements
+        if item.level_name == level_name
+    }
+    revisions = sorted({item.revision_number for item in measurements})
+    time_rows: list[dict[str, object]] = []
+    over_budget_rows: list[dict[str, object]] = []
+    for revision in revisions:
+        item = revision_items.get(revision)
+        stats = stats_by_key.get(_measurement_key(item)) if item else None
+        metrics = stats.get("metrics", {}) if stats else {}
+        for metric_name in TREND_TIME_METRICS:
+            metric = metrics.get(metric_name, {}) if isinstance(metrics, dict) else {}
+            value = metric.get(statistic) if isinstance(metric, dict) else None
+            valid_count = metric.get("ValidFrameCount", 0) if isinstance(metric, dict) else 0
+            actual_value = value if valid_count and value is not None else None
+            time_rows.append(
+                {
+                    "revision": revision,
+                    "metric": metric_name,
+                    "actual_value": actual_value,
+                    "display_value": min(float(actual_value), TREND_TIME_Y_MAX_MS)
+                    if actual_value is not None
+                    else None,
+                    "is_overflow": actual_value is not None and actual_value > TREND_TIME_Y_MAX_MS,
+                }
+            )
+        for display_name, metric_name in TREND_OVER_BUDGET_METRICS:
+            metric = metrics.get(metric_name, {}) if isinstance(metrics, dict) else {}
+            count = metric.get("OverBudgetFrameCount") if isinstance(metric, dict) else None
+            valid_count = metric.get("ValidFrameCount", 0) if isinstance(metric, dict) else 0
+            over_budget_rows.append(
+                {
+                    "revision": revision,
+                    "metric": display_name,
+                    "value": count if valid_count and count is not None else None,
+                }
+            )
+    return pd.DataFrame(time_rows), pd.DataFrame(over_budget_rows)
+
+
+def _time_trend_chart(data: pd.DataFrame) -> alt.Chart:
+    color_scale = alt.Scale(
+        domain=list(TREND_TIME_METRICS),
+        range=[TREND_COLORS[name] for name in TREND_TIME_METRICS],
+    )
+    base = alt.Chart(data).encode(
+        x=alt.X("revision:Q", title="Revision", axis=alt.Axis(format="d")),
+        color=alt.Color("metric:N", title="指標", scale=color_scale),
+    )
+    lines = base.mark_line(point=True).encode(
+        y=alt.Y(
+            "display_value:Q",
+            title="処理時間 (ms)",
+            scale=alt.Scale(domain=[0, TREND_TIME_Y_MAX_MS], nice=False),
+        ),
+        tooltip=[
+            alt.Tooltip("revision:Q", title="Revision", format="d"),
+            alt.Tooltip("metric:N", title="指標"),
+            alt.Tooltip("actual_value:Q", title="実測値 (ms)", format=".2f"),
+        ],
+    )
+    overflow = base.transform_filter("datum.is_overflow").mark_point(
+        shape="triangle-up", size=100, filled=True, clip=False
+    ).encode(
+        y=alt.Y("display_value:Q", scale=alt.Scale(domain=[0, TREND_TIME_Y_MAX_MS], nice=False)),
+        tooltip=[
+            alt.Tooltip("revision:Q", title="Revision", format="d"),
+            alt.Tooltip("metric:N", title="指標"),
+            alt.Tooltip("actual_value:Q", title="実測値 (ms)", format=".2f"),
+        ],
+    )
+    labels = base.transform_filter("datum.is_overflow").mark_text(
+        align="left", dx=6, dy=-5, clip=False
+    ).encode(
+        y=alt.Y("display_value:Q", scale=alt.Scale(domain=[0, TREND_TIME_Y_MAX_MS], nice=False)),
+        text=alt.Text("actual_value:Q", format=".2f"),
+    )
+    budget = alt.Chart(pd.DataFrame({"budget": [TREND_FRAME_BUDGET_MS]})).mark_rule(
+        color="#666666", strokeDash=[4, 4]
+    ).encode(y=alt.Y("budget:Q", title="処理時間 (ms)"))
+    return alt.layer(budget, lines, overflow, labels).resolve_scale(color="shared")
+
+
+def _over_budget_trend_chart(data: pd.DataFrame) -> alt.Chart:
+    color_scale = alt.Scale(
+        domain=[name for name, _ in TREND_OVER_BUDGET_METRICS],
+        range=[TREND_COLORS[name] for name, _ in TREND_OVER_BUDGET_METRICS],
+    )
+    return (
+        alt.Chart(data)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("revision:Q", title="Revision", axis=alt.Axis(format="d")),
+            y=alt.Y("value:Q", title="超過回数 (回)", scale=alt.Scale(zero=True)),
+            color=alt.Color("metric:N", title="指標", scale=color_scale),
+            tooltip=[
+                alt.Tooltip("revision:Q", title="Revision", format="d"),
+                alt.Tooltip("metric:N", title="指標"),
+                alt.Tooltip("value:Q", title="超過回数", format=".0f"),
+            ],
+        )
+    )
+
+
+def _render_revision_trends(
+    measurements: list[Measurement],
+    stats_by_key: dict[tuple[str, str], dict[str, object] | None],
+    statistic: str,
+) -> None:
+    st.header("Revision推移グラフ")
+    if not measurements:
+        st.info("Revision推移グラフの対象データがありません。")
+        return
+    for level_name in _trend_levels(measurements):
+        time_data, over_budget_data = _trend_data(
+            measurements, stats_by_key, level_name, statistic
+        )
+        st.subheader(level_name)
+        if time_data["actual_value"].notna().any():
+            st.altair_chart(_time_trend_chart(time_data), use_container_width=True)
+        else:
+            st.info("処理時間の有効な統計値がありません。")
+        if over_budget_data["value"].notna().any():
+            st.altair_chart(_over_budget_trend_chart(over_budget_data), use_container_width=True)
+        else:
+            st.info("超過回数の有効な統計値がありません。")
 
 
 def main() -> None:
@@ -337,8 +525,8 @@ def main() -> None:
         st.error(f"データ探索に失敗しました: {exc}")
         st.stop()
 
-    missing_statistics_cache_count = sum(
-        _load_stats(item) is None for item in measurements
+    stats_by_key, missing_statistics_cache_count = _load_statistics_for_measurements(
+        measurements
     )
     if missing_statistics_cache_count:
         st.warning(
@@ -382,17 +570,20 @@ def main() -> None:
 
     st.divider()
     st.header("Level一覧")
-    _render_overview(current_items, previous_items, statistic)
+    _render_overview(current_items, previous_items, statistic, stats_by_key)
 
     previous_only = sorted(set(previous_items) - set(current_items))
     if previous_only:
         st.warning("Previous Revisionにのみ存在するLevel: " + ", ".join(previous_only))
 
+    st.divider()
+    _render_revision_trends(measurements, stats_by_key, statistic)
+
     if not current_items:
         return
     st.divider()
     selected_level = st.selectbox("詳細を表示するLevel", sorted(current_items))
-    _render_detail(selected_level, current_items, previous_items)
+    _render_detail(selected_level, current_items, previous_items, stats_by_key)
 
 
 if __name__ == "__main__":
