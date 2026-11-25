@@ -194,6 +194,7 @@ def calculate_statistics_cache(
 ) -> dict[str, object]:
     """Calculate every persistent statistic from an already loaded frame table."""
     statistics = calculate_statistics(frame_df)
+    over_budget_statistics = calculate_over_budget_statistics(frame_df)
     metrics: dict[str, dict[str, object]] = {}
     for display_name, values in _metric_values(frame_df):
         stats: dict[str, object] = {
@@ -201,15 +202,7 @@ def calculate_statistics_cache(
             "ValidFrameCount": int(values.size),
         }
         if display_name in OVER_BUDGET_METRICS:
-            over_count = int((values > FRAME_BUDGET_60FPS_MS).sum())
-            stats.update(
-                {
-                    "OverBudgetFrameCount": over_count,
-                    "OverBudgetRate": (
-                        over_count / int(values.size) * 100 if not values.empty else None
-                    ),
-                }
-            )
+            stats.update(over_budget_statistics[display_name])
         metrics[display_name] = stats
 
     return {
